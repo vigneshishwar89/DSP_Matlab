@@ -105,25 +105,29 @@ end
 % 1) Vocal 2) 2nd harmonic 3) Third Harmonic 4) Subharmonic 5) Other contours in the same pitch range or below f0  6) Other contours higher than f0
 
 
-sId = ones(length(stSamp),1);
-eId = -1*ones(length(endSamp),1);
-tId = [sId;eId];
-timeStamp = [stSamp endSamp];
-[TS1,indic1] = sort(timeStamp);
-sorTID = tId(indic1);
-
-TS2 = TS1.*sorTID';
-[TS3,indic2,indic3]=unique(TS2,'first');
+sId = ones(length(stSamp),1); % 1 if the frame under consideration is a start of the contour
+eId = -1*ones(length(endSamp),1); % -1 if the frame under consideration is a end of the contour
+tId = [sId;eId]; % append all the ids 
+timeStamp = [stSamp endSamp]; % append start times and end times
+[TS1,indic1] = sort(timeStamp); % sort the times to get the segments 
+sorTID = tId(indic1); % sort indices according to sorted time stamps
+%%%%%% Processing the timestamps to give unique timestamps %%%%
+TS2 = TS1.*sorTID'; % storing the timestamps with the sign according to start or end if start it is 1 if end its -2
+[TS3,indic2,indic3]=unique(TS2,'first'); %uniquing with sign
 uniqid = sorTID(indic2);
-TS3 = TS3.*uniqid';
-[TS3,indic4] = sort(TS3);
+TS3 = TS3.*uniqid'; % undoing the sign to the timestamps and storing the signs in the uniqid array separately
+[TS3,indic4] = sort(TS3); 
 uniqid = uniqid(indic4);
 
 disp('Begin Processing blocks...')
 preflag = 0;
 
 for k = 1:length(TS3)-1
-%     tic    
+
+    % applying the conditions of start timestamp and endtimestamp to see
+    % where to start the segment and where to end the segment for
+    % processing.
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%    
     if abs(TS3(k)-TS3(k+1))==1
         P1 = 0; P2 = 0;
     else
@@ -145,13 +149,14 @@ for k = 1:length(TS3)-1
         temp = [st_chunk:et_chunk];
         temp = temp+1;
     end
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%    
 %     if isempty(temp)
 %         disp('hurray')
 %     end
     %temp = [timeStamp(k):timeStamp(k+1)]; temp = temp+1;
     flag = ~sum(pbuff(temp)~=1); % check whether the region of the block is within the annotation region
-    stSamp_wf = temp(1)*128; endSamp_wf = temp(end)*128;
-    wave1_clip=wave1((stSamp_wf-1024):(endSamp_wf+1025));
+    stSamp_wf = temp(1)*128; endSamp_wf = temp(end)*128; % index in the waveform
+    wave1_clip=wave1((stSamp_wf-1024):(endSamp_wf+1025)); % clip the waveform corresponding to the segment
     if flag
         id1 = idmat((1:5),temp(1:end)); 
         u = unique(id1); % Check the contour 
@@ -165,205 +170,235 @@ for k = 1:length(TS3)-1
             negInd = find(y_chunk~=-1); % Check if the chunk contains a contour or not in that row.
             
             if ~isempty(negInd)
+                
                 x_chunk = x_chunk(negInd); y_chunk = y_chunk(negInd);
-                %%%%%%%%%%%%%%%%%%%% Calculate the match of the contour %%%%%%%%%%%%%%%%%%%%
-                err1=sum(abs(y_chunk'-pctr(x_chunk)))/length(y_chunk);
-                err2=sum(abs(y_chunk'-2*pctr(x_chunk)))/length(y_chunk);
-                err3=sum(abs(y_chunk'-3*pctr(x_chunk)))/length(y_chunk);
-                errhalf=sum(abs(y_chunk'-0.5*pctr(x_chunk)))/length(y_chunk);
-                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                
+                %%%%%%%%%%%%%%%%%%%% Calculate the error of the contour with each class %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                err1=sum(abs(y_chunk'-pctr(x_chunk)))/length(y_chunk); % error with fundamental ie the predominant final o/p
+                err2=sum(abs(y_chunk'-2*pctr(x_chunk)))/length(y_chunk); % error with 2nd harmonic of predominant final o/p
+                err3=sum(abs(y_chunk'-3*pctr(x_chunk)))/length(y_chunk); % error with 3rd harmonic of predominant final o/p
+                errhalf=sum(abs(y_chunk'-0.5*pctr(x_chunk)))/length(y_chunk); % error with subharmonic of predominant final o/p
+                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+                
                 if err1 < 0.01
-                    voc(cnt1).xcont = x_chunk; voc(cnt1).ycont = y_chunk;
-                    vocPitcharr = [x_chunk' y_chunk'];
+                    
+                    vocPitcharr = [x_chunk' y_chunk']; % time freq of the chunk
                     [hmags,hmagsLoc]=HarmonicSubtraction_ver3(vocPitcharr, wave1_clip, win, NFFT, nHarm, thsld, maxhd); % get Harmonic mags and locs 
                     hmags = hmags';
-                    linMag = 10.^(hmags./20);
-                    temp1 = sum(linMag);
-                    [w z] = size(temp1);
+                    linMag = 10.^(hmags./20); % convert to linear scale
+%                     temp1 = sum(linMag);
+%                     [w z] = size(temp1);
 
-                    R2 = genSlope(hmags,slpnum); % Calculate Slope!!!!!!!!
-
-                    if iscolumn(R2.SLOPE)
-                        vocContour(cnt1).frameslopes = [x_chunk' R2.SLOPE];
-                    else
-                        vocContour(cnt1).frameslopes = [x_chunk' R2.SLOPE'];
-                    end
-
-                    vocContour(cnt1).aggslopes = R2.AggregateSlope;
+                    R2 = genSlope(hmags,hmagsLoc,slpnum); % Calculate Slope!!!!!!!!
+                    vocframeslopes = R2.SLOPE;
                     
-                    if z == 1
-                        aggrMag_Voc(cnt1,:) = linMag./sum(linMag);
-                    else
-                        aggrMag_Voc(cnt1,:) = temp1./sum(temp1);
-                    end
-                    vocconInd(cnt1) = ctrId(f);
-                    cnt1 = cnt1 + 1;
-                    %plot(x_chunk,y_chunk,'.r')
+                    % Check if theres only one frame or more. If one then
+                    % dont sum if more then one then take aggregate.
+                    
+%                     if z == 1
+%                         aggrMag_Voc(cnt1,:) = linMag./sum(linMag);
+%                     else
+%                         aggrMag_Voc(cnt1,:) = temp1./sum(temp1);
+%                     end
+%                   
+                    % To store all attributes in a structure
+                    vocmags = linMag; vocLocs = hmagsLoc';
+                    vpthout = [(x_chunk'*(128/44100)) y_chunk'];
+                    vocalContour(cnt1).freq = vpthout;
+                    vocalContour(cnt1).id = ctrId(f);
+                    vocalContour(cnt1).harmMag = vocmags;
+                    vocalContour(cnt1).harmLocs = vocLocs;
+                    vocalContour(cnt1).frameslopes = vocframeslopes;
+                    
+                    cnt1 = cnt1 + 1; % increment count
+                    
                 elseif err2 < 4
-                    harm2(cnt2).xcont = x_chunk; harm2(cnt2).ycont = y_chunk;
-                    harm2Pitcharr = [x_chunk' y_chunk'];
+                    
+                    harm2Pitcharr = [x_chunk' y_chunk']; 
                     [hmags,hmagsLoc]=HarmonicSubtraction_ver3(harm2Pitcharr, wave1_clip, win, NFFT, nHarm, thsld, maxhd);
                     hmags = hmags';
                     linMag = 10.^(hmags./20);
-                    temp1 = sum(linMag);
-                    [w z]=size(temp1);
+%                     temp1 = sum(linMag);
+%                     [w z]=size(temp1);
                     
-                    R2 = genSlope(hmags,slpnum); % Calculate Slope!!!!!!!!
-
-                    if iscolumn(R2.SLOPE)
-                        harm2Contour(cnt2).frameslopes = [x_chunk' R2.SLOPE];
-                    else
-                        harm2Contour(cnt2).frameslopes = [x_chunk' R2.SLOPE'];
-                    end
-
-                    harm2Contour(cnt2).aggslopes = R2.AggregateSlope;
+                    R2 = genSlope(hmags,hmagsLoc,slpnum); % Calculate Slope!!!!!!!!
+                    harm2frameslopes = R2.SLOPE;
                     
-                    if z == 1
-                        aggrMag_harm2(cnt2,:) = linMag./sum(linMag);
-                    else
-                        aggrMag_harm2(cnt2,:) = temp1./sum(temp1);
-                    end
-                    harm2Ind(cnt2) = ctrId(f);
+                    % Check if theres only one frame or more. If one then
+                    % dont sum if more then one then take aggregate.
+                    
+%                     if z == 1
+%                         aggrMag_harm2(cnt2,:) = linMag./sum(linMag);
+%                     else
+%                         aggrMag_harm2(cnt2,:) = temp1./sum(temp1);
+%                     end
+                    harm2mags = linMag; harm2Locs = hmagsLoc';
+                    harm2pthout = [(x_chunk'*(128/44100)) y_chunk'];
+                    harm2Contour(cnt2).freq = harm2pthout;
+                    harm2Contour(cnt2).id = ctrId(f);
+                    harm2Contour(cnt2).harmMag = harm2mags;
+                    harm2Contour(cnt2).harmLocs = harm2Locs;
+                    harm2Contour(cnt2).frameslopes = harm2frameslopes;
+                    
                     cnt2 = cnt2 + 1;
+                    
                     %plot(x_chunk,y_chunk,'.g')
                 elseif err3 < 4
-                    harm3(cnt6).xcont = x_chunk; harm3(cnt6).ycont = y_chunk;
+                    
                     harm3Pitcharr = [x_chunk' y_chunk'];
                     [hmags,hmagsLoc]=HarmonicSubtraction_ver3(harm3Pitcharr, wave1_clip, win, NFFT, nHarm, thsld, maxhd);
                     hmags = hmags';
                     linMag = 10.^(hmags./20);
-                    temp1 = sum(linMag);
-                       [w z]=size(temp1);
-                    R2 = genSlope(hmags,slpnum); % Calculate Slope!!!!!!!!
-
-                    if iscolumn(R2.SLOPE)
-                        harm3Contour(cnt6).frameslopes = [x_chunk' R2.SLOPE];
-                    else
-                        harm3Contour(cnt6).frameslopes = [x_chunk' R2.SLOPE'];
-                    end
-
-                    harm3Contour(cnt6).aggslopes = R2.AggregateSlope;
                      
-                    if z == 1
-                        aggrMag_harm3(cnt6,:) = linMag./sum(linMag);
-                    else
-                        aggrMag_harm3(cnt6,:) = temp1./sum(temp1);
-                    end
-                    harm3Ind(cnt6) = ctrId(f);
-                    cnt6 = cnt6 + 1;
+%                     temp1 = sum(linMag);
+%                     [w z]=size(temp1);
+                    R2 = genSlope(hmags, hmagsLoc, slpnum); % Calculate Slope!!!!!!!!
+                    harm3frameslopes = R2.SLOPE;
+                    
+                    % Check if theres only one frame or more. If one then
+                    % dont sum if more then one then take aggregate.
+                    
+%                     if z == 1
+%                         aggrMag_harm3(cnt3,:) = linMag./sum(linMag);
+%                     else
+%                         aggrMag_harm3(cnt3,:) = temp1./sum(temp1);
+%                     end
+                    harm3mags = linMag; harm3Locs = hmagsLoc';
+                    harm3pthout = [(x_chunk'*(128/44100)) y_chunk'];
+                    harm3Contour(cnt3).freq = harm3pthout;
+                    harm3Contour(cnt3).id = ctrId(f);
+                    harm3Contour(cnt3).harmMag = harm3mags;
+                    harm3Contour(cnt3).harmLocs = harm3Locs;
+                    harm3Contour(cnt3).frameslopes = harm3frameslopes;
+                    
+                    cnt3 = cnt3 + 1;
+                    
                     %plot(x_chunk,y_chunk,'*r')
                 elseif errhalf < 4
-                    subharm(cnt3).xcont = x_chunk; subharm(cnt3).ycont = y_chunk;
-                    subharmPitcharr = [x_chunk' y_chunk'];
+                    
+                    subharmPitcharr = [x_chunk' y_chunk']; 
                     [hmags,hmagsLoc]=HarmonicSubtraction_ver3(subharmPitcharr, wave1_clip, win, NFFT, nHarm, thsld, maxhd);
                     hmags = hmags';
                     linMag = 10.^(hmags./20);
-                    temp1 = sum(linMag);
-                    [w z] =size(temp1);
-                    R2 = genSlope(hmags,slpnum); % Calculate Slope!!!!!!!!
-
-                    if iscolumn(R2.SLOPE)
-                        subharmContour(cnt3).frameslopes = [x_chunk' R2.SLOPE];
-                    else
-                        subharmContour(cnt3).frameslopes = [x_chunk' R2.SLOPE'];
-                    end
-
-                    subharmContour(cnt3).aggslopes = R2.AggregateSlope;
-
-                    if z==1
-                        aggrMag_subharm(cnt3,:) = linMag./sum(linMag);
-                    else
-                        aggrMag_subharm(cnt3,:) = temp1./sum(temp1);
-                    end
+%                     temp1 = sum(linMag);
+%                     [w z]=size(temp1);
                     
-                    subharmInd(cnt3) = ctrId(f);
-                    cnt3 = cnt3 + 1;
+                    R2 = genSlope(hmags, hmagsLoc, slpnum); % Calculate Slope!!!!!!!!
+                    subharmframeslopes = R2.SLOPE;
+                    
+                    % Check if theres only one frame or more. If one then
+                    % dont sum if more then one then take aggregate.
+                    
+%                     if z == 1
+%                         aggrMag_subharm(cnt4,:) = linMag./sum(linMag);
+%                     else
+%                         aggrMag_subharm(cnt4,:) = temp1./sum(temp1);
+%                     end
+                    subharmmags = linMag; subharmLocs = hmagsLoc';
+                    subharmpthout = [(x_chunk'*(128/44100)) y_chunk'];
+                    subharmContour(cnt4).freq = subharmpthout;
+                    subharmContour(cnt4).id = ctrId(f);
+                    subharmContour(cnt4).harmMag = subharmmags;
+                    subharmContour(cnt4).harmLocs = subharmLocs;
+                    subharmContour(cnt4).frameslopes = subharmframeslopes;
+                    
+                    cnt4 = cnt4 + 1;
+                    
                     %plot(x_chunk,y_chunk,'.k')
 
                 elseif (median(y_chunk)>median(pctr(x_chunk)))
-
-                    viogr(cnt4).xcont = x_chunk; harm2(cnt4).ycont = y_chunk;
-                    viogrPitcharr = [x_chunk' y_chunk'];
+                    
+                    viogrPitcharr = [x_chunk' y_chunk']; 
                     [hmags,hmagsLoc]=HarmonicSubtraction_ver3(viogrPitcharr, wave1_clip, win, NFFT, nHarm, thsld, maxhd);
                     hmags = hmags';
                     linMag = 10.^(hmags./20);
-                    temp1 = sum(linMag);
-                    [w z] = size(temp1);
+%                     temp1 = sum(linMag);
+%                     [w z]=size(temp1);
+                    
+                    R2 = genSlope(hmags,hmagsLoc,slpnum); % Calculate Slope!!!!!!!!
+                    viogrframeslopes = R2.SLOPE;
+                    
+                    % Check if theres only one frame or more. If one then
+                    % dont sum if more then one then take aggregate.
+                    
+%                     if z == 1
+%                         aggrMag_viogr(cnt5,:) = linMag./sum(linMag);
+%                     else
+%                         aggrMag_viogr(cnt5,:) = temp1./sum(temp1);
+%                     end
 
-                    R2 = genSlope(hmags,slpnum); % Calculate Slope!!!!!!!!
+                    viogrmags = linMag; viogrLocs = hmagsLoc';
+                    viogrpthout = [(x_chunk'*(128/44100)) y_chunk'];
+                    viogrContour(cnt5).freq = viogrpthout;
+                    viogrContour(cnt5).id = ctrId(f);
+                    viogrContour(cnt5).harmMag = viogrmags;
+                    viogrContour(cnt5).harmLocs = viogrLocs;
+                    viogrContour(cnt5).frameslopes = viogrframeslopes;
+                    
+                    cnt5 = cnt5 + 1;
 
-                    if iscolumn(R2.SLOPE)
-                        viogrContour(cnt4).frameslopes = [x_chunk' R2.SLOPE];
-                    else
-                        viogrContour(cnt4).frameslopes = [x_chunk' R2.SLOPE'];
-                    end
 
-                    viogrContour(cnt4).aggslopes = R2.AggregateSlope;
-                    if z == 1
-                        aggrMag_viogr(cnt4,:) = linMag./sum(linMag);
-                    else
-                        aggrMag_viogr(cnt4,:) = temp1./sum(temp1);
-                    end
-                    viogrInd(cnt4) = ctrId(f);
-                    cnt4 = cnt4 + 1;
-                    %plot(x_chunk,y_chunk,'.m')
 
                 elseif (median(y_chunk)<median(pctr(x_chunk)))
                     
-                    violr(cnt5).xcont = x_chunk; violr(cnt5).ycont = y_chunk;
-                    violrPitcharr = [x_chunk' y_chunk'];
+                    violrPitcharr = [x_chunk' y_chunk']; 
                     [hmags,hmagsLoc]=HarmonicSubtraction_ver3(violrPitcharr, wave1_clip, win, NFFT, nHarm, thsld, maxhd);
                     hmags = hmags';
                     linMag = 10.^(hmags./20);
-                    temp1 = sum(linMag);
-                    [w z] = size(temp1);
-
-                    R2 = genSlope(hmags,slpnum); % Calculate Slope!!!!!!!!
-
-                    if iscolumn(R2.SLOPE)
-                        violrContour(cnt5).frameslopes = [x_chunk' R2.SLOPE];
-                    else
-                        violrContour(cnt5).frameslopes = [x_chunk' R2.SLOPE'];
-                    end
-
-                    violrContour(cnt5).aggslopes = R2.AggregateSlope;
-
-                    if z == 1
-                        aggrMag_violr(cnt5,:) = linMag./sum(linMag);
-                    else
-                        aggrMag_violr(cnt5,:) = temp1./sum(temp1);
-                    end
-
-                    violrInd(cnt5) = ctrId(f);
-                    cnt5 = cnt5 + 1;
-                    %plot(x_chunk(negInd),y_chunk(negInd),'*k')
+%                     temp1 = sum(linMag);
+%                     [w z]=size(temp1);
+                    
+                    R2 = genSlope(hmags,hmagsLoc, slpnum); % Calculate Slope!!!!!!!!
+                    violrframeslopes = R2.SLOPE;
+                    
+                    % Check if theres only one frame or more. If one then
+                    % dont sum if more then one then take aggregate.
+                    
+%                     if z == 1
+%                         aggrMag_violr(cnt6,:) = linMag./sum(linMag);
+%                     else
+%                         aggrMag_violr(cnt6,:) = temp1./sum(temp1);
+%                     end
+                    
+                    violrmags = linMag; violrLocs = hmagsLoc';
+                    violrpthout = [(x_chunk'*(128/44100)) y_chunk'];
+                    violrContour(cnt6).freq = violrpthout;
+                    violrContour(cnt6).id = ctrId(f);
+                    violrContour(cnt6).harmMag = violrmags;
+                    violrContour(cnt6).harmLocs = violrLocs;
+                    violrContour(cnt6).frameslopes = violrframeslopes;
+                    
+                    cnt6 = cnt6 + 1;
 
                 else
                     
-                    vioctr(cnt7).xcont = x_chunk; vioctr(cnt5).ycont = y_chunk;
                     vioctrPitcharr = [x_chunk' y_chunk'];
                     [hmags,hmagsLoc]=HarmonicSubtraction_ver3(vioctrPitcharr, wave1_clip, win, NFFT, nHarm, thsld, maxhd);
                     hmags = hmags';
                     linMag = 10.^(hmags./20);
-                    temp1 = sum(linMag);
-                    [w z] = size(temp1);
-                    R2 = genSlope(hmags,slpnum); % Calculate Slope!!!!!!!!
-
-                    if iscolumn(R2.SLOPE)
-                        vioctrContour(cnt7).frameslopes = [x_chunk' R2.SLOPE];
-                    else
-                        vioctrContour(cnt7).frameslopes = [x_chunk' R2.SLOPE'];
-                    end
-
-                    vioctrContour(cnt7).aggslopes = R2.AggregateSlope;
-
-                    if z == 1
-                        aggrMag_vioctr(cnt7,:) = linMag./sum(linMag);
-                    else
-                        aggrMag_vioctr(cnt7,:) = temp1./sum(temp1);
-                    end
-
-                    vioctrInd(cnt7) = ctrId(f);
+%                     temp1 = sum(linMag);
+%                     [w z]=size(temp1);
+                    
+                    R2 = genSlope(hmags,hmagsLoc,slpnum); % Calculate Slope!!!!!!!!
+                    vioctrframeslopes = R2.SLOPE;
+                    
+                    % Check if theres only one frame or more. If one then
+                    % dont sum if more then one then take aggregate.
+                    
+%                     if z == 1
+%                         aggrMag_vioctr(cnt7,:) = linMag./sum(linMag);
+%                     else
+%                         aggrMag_vioctr(cnt7,:) = temp1./sum(temp1);
+%                     end
+                    
+                    vioctrmags = linMag; vioctrLocs = hmagsLoc';
+                    vioctrpthout = [(x_chunk'*(128/44100)) y_chunk'];
+                    vioctrContour(cnt7).freq = vioctrpthout;
+                    vioctrContour(cnt7).id = ctrId(f);
+                    vioctrContour(cnt7).harmMag = vioctrmags;
+                    vioctrContour(cnt7).harmLocs = vioctrLocs;
+                    vioctrContour(cnt7).frameslopes = vioctrframeslopes;
+                    
                     cnt7 = cnt7 + 1;
 
                 end
@@ -380,78 +415,81 @@ end
 
 %% Return Values computed
 
-R.VocFeat = aggrMag_Voc;
-%R.VocFeatTime=hfeat_locs_voc;
-if exist('aggrMag_harm2')==1
-    R.harm2Feat = aggrMag_harm2;
+if exist('vocalContour')==1
+    R.VocFeat = vocalContour;
 else
-    R.harm2Feat = zeros(1,nHarm);
+    vocaldummy(1).freq = inf;
+    vocaldummy(1).id = inf;
+    vocaldummy(1).harmMag = inf*ones(1,nHarm);
+    vocaldummy(1).harmLocs = inf*ones(1,nHarm);
+    vocaldummy(1).frameslopes = inf;
+    R.VocFeat = vocaldummy;
 end
-if exist('aggrMag_harm3')
-    R.harm3Feat = aggrMag_harm3;
+
+if exist('harm2Contour')==1
+    R.harm2Feat = harm2Contour;
 else
-    R.harm3Feat = zeros(1,nHarm);
+    harm2dummy(1).freq = inf;
+    harm2dummy(1).id = inf;
+    harm2dummy(1).harmMag = inf*ones(1,nHarm);
+    harm2dummy(1).harmLocs = inf*ones(1,nHarm);
+    harm2dummy(1).frameslopes = inf;
+    R.harm2Feat = harm2dummy;
 end
-if exist('aggrMag_subharm')
-    R.subharmFeat = aggrMag_subharm;
+
+if exist('harm3Contour')==1
+    R.harm3Feat = harm3Contour;
 else
-    R.subharmFeat = zeros(1,nHarm);
+    harm3dummy(1).freq = inf;
+    harm3dummy(1).id = inf;
+    harm3dummy(1).harmMag = inf*ones(1,nHarm);
+    harm3dummy(1).harmLocs = inf*ones(1,nHarm);
+    harm3dummy(1).frameslopes = inf;
+    R.harm3Feat = harm3dummy;
 end
-if exist('aggrMag_viogr')
-    R.viogrFeat = aggrMag_viogr;
+
+if exist('subharmContour')==1
+    R.subharmFeat = subharmContour;
 else
-    R.viogrFeat = zeros(1,nHarm);
+    subharmdummy(1).freq = inf;
+    subharmdummy(1).id = inf;
+    subharmdummy(1).harmMag = inf*ones(1,nHarm);
+    subharmdummy(1).harmLocs = inf*ones(1,nHarm);
+    subharmdummy(1).frameslopes = inf;
+    R.subharmFeat = subharmdummy;
 end
-if exist('aggrMag_vioctr')
-    R.vioctrFeat = aggrMag_vioctr;
+
+if exist('viogrContour')==1
+    R.viogrFeat = viogrContour;
 else
-    R.vioctrFeat = zeros(1,nHarm);
+    viogrdummy(1).freq = inf;
+    viogrdummy(1).id = inf;
+    viogrdummy(1).harmMag = inf*ones(1,nHarm);
+    viogrdummy(1).harmLocs = inf*ones(1,nHarm);
+    viogrdummy(1).frameslopes = inf;
+    R.viogrFeat = harm3dummy;
 end
-if exist('aggrMag_violr')
-    R.violrFeat = aggrMag_violr;
+
+if exist('violrContour')==1
+    R.violrFeat = violrContour;
 else
-    R.violrFeat = zeros(1,nHarm);
+    violrdummy(1).freq = inf;
+    violrdummy(1).id = inf;
+    violrdummy(1).harmMag = inf*ones(1,nHarm);
+    violrdummy(1).harmLocs = inf*ones(1,nHarm);
+    violrdummy(1).frameslopes = inf;
+    R.violrFeat = violrdummy;
 end
-if exist('vocContour')
-    R.vocFrameSlopes = vocContour;
+
+if exist('vioctrContour')==1
+    R.vioctrFeat = vioctrContour;
 else
-    vocDummy(1).frameslopes = [0 inf];
-    R.vocFrameSlopes = vocDummy;
+    vioctrdummy(1).freq = inf;
+    vioctrdummy(1).id = inf;
+    vioctrdummy(1).harmMag = inf*ones(1,nHarm);
+    vioctrdummy(1).harmLocs = inf*ones(1,nHarm);
+    vioctrdummy(1).frameslopes = inf;
+    R.vioctrFeat = vioctrdummy;
 end
-if exist('harm2Contour')
-    R.harm2FrameSlopes = harm2Contour;
-else
-    harm2Dummy(1).frameslopes = [0 inf];
-    R.harm2FrameSlopes = harm2Dummy;
-end
-if exist('harm3Contour')
-    R.harm3FrameSlopes = harm3Contour;
-else
-    harm3Dummy(1).frameslopes = [0 inf];
-    R.harm3FrameSlopes = harm3Dummy;
-end
-if exist('subharmContour')
-    R.subharmFrameSlopes = subharmContour;
-else
-    subharmDummy(1).frameslopes = [0 inf];
-    R.subharmFrameSlopes = subharmDummy;
-end
-if exist('viogrContour')
-    R.viogrFrameSlopes = viogrContour;
-else
-    viogrDummy(1).frameslopes = [0 inf];
-    R.viogrFrameSlopes = viogrDummy;
-end
-if exist('R.vioctrContour')
-    R.vioctrFrameSlopes = vioctrContour;
-else
-    vioctrDummy(1).frameslopes = [0 inf];
-    R.vioctrFrameSlopes = vioctrDummy;
-end
-if exist('violrContour')
-    R.violrFrameSlopes =violrContour;
-else
-    violrDummy(1).frameslopes = [0 inf];
-    R.violrFrameSlopes = violrDummy;
-end
+
 
