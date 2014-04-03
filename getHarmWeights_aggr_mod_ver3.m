@@ -156,7 +156,7 @@ for k = 1:length(TS3)-1
     %temp = [timeStamp(k):timeStamp(k+1)]; temp = temp+1;
     flag = ~sum(pbuff(temp)~=1); % check whether the region of the block is within the annotation region
     stSamp_wf = temp(1)*128; endSamp_wf = temp(end)*128; % index in the waveform
-    wave1_clip=wave1((stSamp_wf-1024):(endSamp_wf+1025)); % clip the waveform corresponding to the segment
+    wave1_clip=wave1((stSamp_wf-1024):min((endSamp_wf+1024),length(wave1))); % clip the waveform corresponding to the segment
     if flag
         id1 = idmat((1:5),temp(1:end)); 
         u = unique(id1); % Check the contour 
